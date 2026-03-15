@@ -3,7 +3,7 @@ const POLL_INTERVAL = 1500;
 const STORAGE_KEY   = 'yt_downloads';
 
 // State
-let mode = 'video';          // 'video' | 'audio'
+let mode = 'audio';           // 'audio' (video mode removed)
 let videoQuality = 'medium';
 let audioQuality = 'medium';
 let serverOnline  = false;
@@ -199,6 +199,14 @@ async function refreshActiveDownloads() {
   for (const item of active) {
     try {
       const res = await fetch(`${SERVER}/status/${item.id}`, { signal: AbortSignal.timeout(2000) });
+      if (res.status === 404) {
+        // Job no longer exists on server (server restarted) — mark as error
+        await updateStoredDownload(item.id, {
+          status: 'error',
+          badge:  'Lost (server restarted)',
+        });
+        continue;
+      }
       const data = await res.json();
       await updateStoredDownload(item.id, {
         status:   data.status,

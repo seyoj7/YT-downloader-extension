@@ -46,6 +46,7 @@ AUDIO_BITRATES = {
 YDL_BASE: dict = {
     'quiet':            True,
     'no_warnings':      True,
+    'noplaylist':       True,
     'retries':          5,
     'fragment_retries': 5,
     'extractor_args': {
@@ -126,70 +127,74 @@ def update_ytdlp():
 # Download worker
 
 def _run_download(job_id: str, opts: dict):
-    mode         = opts.get('mode', 'audio')
-    quality      = opts.get('quality', 'medium')
-    audio_format = opts.get('audio_format', 'mp3')
-    url          = opts['url']
-
-    if mode != 'audio':
-        _patch(job_id, status='error', error='Video mode is no longer supported. Use mode="audio".')
-        return
-
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            raw = d.get('_percent_str', '0%').strip().replace('%', '')
-            raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)
-            try:
-                pct = float(raw)
-            except ValueError:
-                pct = 0
-            _patch(job_id, status='progress', progress=pct)
-        elif d['status'] == 'finished':
-            _patch(job_id, progress=99)
-
-    ydl_opts: dict = {
-        **YDL_BASE,
-        'outtmpl':        str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
-        'progress_hooks': [progress_hook],
-    }
-
-    if FFMPEG_BIN:
-        ydl_opts['ffmpeg_location'] = FFMPEG_BIN
-
-    if FFMPEG_OK:
-        # Convert to the requested format at the chosen bitrate
-        bitrate = AUDIO_BITRATES.get(quality, '192')
-        ydl_opts.update({
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key':              'FFmpegExtractAudio',
-                'preferredcodec':   audio_format,
-                'preferredquality': bitrate,
-            }],
-        })
-    else:
-        # Map quality to approximate bitrate filter
-        abr_map = {'low': 130, 'medium': 200, 'high': 9999}
-        abr = abr_map.get(quality, 200)
-        ydl_opts['format'] = f'bestaudio[abr<={abr}]/bestaudio/best'
-        _patch(job_id, error='ffmpeg missing — audio saved as native format (webm/m4a), not mp3')
-
     try:
+        mode         = opts.get('mode', 'audio')
+        quality      = opts.get('quality', 'medium')
+        audio_format = opts.get('audio_format', 'mp3')
+        url          = opts['url']
+
+        print(f'[Job {job_id}] Starting: {url} (mode={mode}, quality={quality}, fmt={audio_format})')
+
+        if mode != 'audio':
+            _patch(job_id, status='error', error='Video mode is no longer supported. Use mode="audio".')
+            return
+
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                raw = d.get('_percent_str', '0%').strip().replace('%', '')
+                raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)
+                try:
+                    pct = float(raw)
+                except ValueError:
+                    pct = 0
+                _patch(job_id, status='progress', progress=pct)
+            elif d['status'] == 'finished':
+                _patch(job_id, progress=99)
+
+        ydl_opts: dict = {
+            **YDL_BASE,
+            'outtmpl':        str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
+            'progress_hooks': [progress_hook],
+        }
+
+        if FFMPEG_BIN:
+            ydl_opts['ffmpeg_location'] = FFMPEG_BIN
+
+        if FFMPEG_OK:
+            bitrate = AUDIO_BITRATES.get(quality, '192')
+            ydl_opts.update({
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key':              'FFmpegExtractAudio',
+                    'preferredcodec':   audio_format,
+                    'preferredquality': bitrate,
+                }],
+            })
+        else:
+            abr_map = {'low': 130, 'medium': 200, 'high': 9999}
+            abr = abr_map.get(quality, 200)
+            ydl_opts['format'] = f'bestaudio[abr<={abr}]/bestaudio/best'
+            _patch(job_id, error='ffmpeg missing — audio saved as native format (webm/m4a), not mp3')
+
+        _patch(job_id, status='progress', progress=0)
+        print(f'[Job {job_id}] Extracting info and downloading...')
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(url, download=True)
             title = info.get('title', url) if info else url
-            _patch(job_id, title=title, status='progress')
+            _patch(job_id, title=title)
 
-            ydl.download([url])
-
+        print(f'[Job {job_id}] Done: {title}')
         _patch(job_id, status='done', progress=100)
 
     except yt_dlp.utils.DownloadError as e:
         msg = str(e)
+        print(f'[Job {job_id}] DownloadError: {msg}')
         if '403' in msg:
             msg = '403 Forbidden — try updating yt-dlp (button in extension Settings)'
         _patch(job_id, status='error', error=msg[:160])
     except Exception as e:
+        print(f'[Job {job_id}] Error: {e}')
         _patch(job_id, status='error', error=f'Unexpected error: {e}'[:160])
 
 
