@@ -36,18 +36,6 @@ CORS(app)
 jobs: dict = {}
 jobs_lock = threading.Lock()
 
-# Quality mappings
-VIDEO_FORMATS_FFMPEG = {
-    'low':    'bestvideo[height<=360]+bestaudio/best[height<=360]',
-    'medium': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
-    'high':   'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
-}
-VIDEO_FORMATS_NOFFMPEG = {
-    'low':    'best[height<=360]/best[height<=480]/best',
-    'medium': 'best[height<=720]/best[height<=480]/best',
-    'high':   'best[height<=1080]/best[height<=720]/best',
-}
-
 AUDIO_BITRATES = {
     'low':    '128',
     'medium': '192',
@@ -138,11 +126,14 @@ def update_ytdlp():
 # Download worker
 
 def _run_download(job_id: str, opts: dict):
-    mode         = opts.get('mode', 'video')
+    mode         = opts.get('mode', 'audio')
     quality      = opts.get('quality', 'medium')
-    video_format = opts.get('video_format', 'mp4')
     audio_format = opts.get('audio_format', 'mp3')
     url          = opts['url']
+
+    if mode != 'audio':
+        _patch(job_id, status='error', error='Video mode is no longer supported. Use mode="audio".')
+        return
 
     def progress_hook(d):
         if d['status'] == 'downloading':
@@ -165,35 +156,23 @@ def _run_download(job_id: str, opts: dict):
     if FFMPEG_BIN:
         ydl_opts['ffmpeg_location'] = FFMPEG_BIN
 
-    if mode == 'audio':
-        if FFMPEG_OK:
-            # Convert to the requested format at the chosen bitrate
-            bitrate = AUDIO_BITRATES.get(quality, '192')
-            ydl_opts.update({
-                'format': 'bestaudio/best',
-                'postprocessors': [{
-                    'key':              'FFmpegExtractAudio',
-                    'preferredcodec':   audio_format,
-                    'preferredquality': bitrate,
-                }],
-            })
-        else:
-            # Map quality to approximate bitrate filter
-            abr_map = {'low': 130, 'medium': 200, 'high': 9999}
-            abr = abr_map.get(quality, 200)
-            ydl_opts['format'] = f'bestaudio[abr<={abr}]/bestaudio/best'
-            _patch(job_id, error='ffmpeg missing — audio saved as native format (webm/m4a), not mp3')
+    if FFMPEG_OK:
+        # Convert to the requested format at the chosen bitrate
+        bitrate = AUDIO_BITRATES.get(quality, '192')
+        ydl_opts.update({
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key':              'FFmpegExtractAudio',
+                'preferredcodec':   audio_format,
+                'preferredquality': bitrate,
+            }],
+        })
     else:
-        if FFMPEG_OK:
-            fmt = VIDEO_FORMATS_FFMPEG.get(quality, VIDEO_FORMATS_FFMPEG['medium'])
-            ydl_opts['format'] = fmt
-            if video_format in ('mp4', 'mkv', 'webm'):
-                ydl_opts['merge_output_format'] = video_format
-        else:
-            # No ffmpeg: single-file progressive download (no merging needed)
-            fmt = VIDEO_FORMATS_NOFFMPEG.get(quality, VIDEO_FORMATS_NOFFMPEG['medium'])
-            ydl_opts['format'] = fmt
-            # Can't force container without ffmpeg; skip merge_output_format
+        # Map quality to approximate bitrate filter
+        abr_map = {'low': 130, 'medium': 200, 'high': 9999}
+        abr = abr_map.get(quality, 200)
+        ydl_opts['format'] = f'bestaudio[abr<={abr}]/bestaudio/best'
+        _patch(job_id, error='ffmpeg missing — audio saved as native format (webm/m4a), not mp3')
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -234,10 +213,9 @@ if __name__ == '__main__':
     print(f'[YT Downloader] Files saved to: {DOWNLOAD_DIR}')
     if FFMPEG_OK:
         source = f'bundled ({_LOCAL_FF})' if _LOCAL_FF.exists() else 'system PATH'
-        print(f'[YT Downloader] ffmpeg detected ({source}) — full quality + audio conversion available')
+        print(f'[YT Downloader] ffmpeg detected ({source}) — audio conversion available')
     else:
         print('[YT Downloader] WARNING: ffmpeg not found')
-        print('  Video will download as single-file (max ~720p progressive stream)')
         print('  Audio will download as native format (webm/m4a), not mp3')
         print('  To fix: install ffmpeg and add it to PATH')
         print('  Quick install: winget install ffmpeg  OR  choco install ffmpeg')
