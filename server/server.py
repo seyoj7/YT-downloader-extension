@@ -204,16 +204,9 @@ def _run_download(job_id: str, opts: dict):
 
         if mode == 'video':
             format_spec = VIDEO_FORMAT_SPECS.get(quality, VIDEO_FORMAT_SPECS['480'])
-            command = ['yt-dlp', url, '-f', format_spec, '--merge-output-format', 'mp4']
             _patch(job_id, progress=5)
             try:
-                subprocess.run(
-                    command,
-                    check=True,
-                    text=True,
-                    capture_output=True,
-                    cwd=str(DOWNLOAD_DIR),
-                )
+                _merge_video_with_audio(url, format_spec)
                 print('Download complete!')
             except subprocess.CalledProcessError as e:
                 print(f'Error during download.\n{e.returncode}: {e.stderr}')
@@ -247,6 +240,30 @@ def _patch(job_id: str, **kwargs):
     with jobs_lock:
         if job_id in jobs:
             jobs[job_id].update(kwargs)
+
+
+def _merge_video_with_audio(url: str, format_spec: str):
+    command = _resolve_ytdlp_command()
+    command += [url, '-f', format_spec, '--merge-output-format', 'mp4']
+
+    if FFMPEG_BIN:
+        command += ['--ffmpeg-location', FFMPEG_BIN]
+
+    return subprocess.run(
+        command,
+        check=True,
+        text=True,
+        capture_output=True,
+        cwd=str(DOWNLOAD_DIR),
+    )
+
+
+def _resolve_ytdlp_command() -> list[str]:
+    # Prefer CLI when available; otherwise invoke yt-dlp module from current Python.
+    ytdlp_cli = shutil.which('yt-dlp')
+    if ytdlp_cli:
+        return [ytdlp_cli]
+    return [sys.executable, '-m', 'yt_dlp']
 
 
 def _is_youtube_url(url: str) -> bool:
