@@ -3,8 +3,8 @@ const POLL_INTERVAL = 1500;
 const STORAGE_KEY   = 'yt_downloads';
 
 // State
-let mode = 'audio';           // 'audio' (video mode removed)
-let videoQuality = 'medium';
+let mode = 'audio';
+let videoQuality = '480';
 let audioQuality = 'medium';
 let serverOnline  = false;
 

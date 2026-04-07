@@ -42,6 +42,27 @@ AUDIO_BITRATES = {
     'high':   '320',
 }
 
+VIDEO_FORMAT_SPECS = {
+    '1080': 'bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=1080]+bestaudio/best[height=1080]/best[ext=mp4]/best',
+    '480':  'bestvideo[height=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=480]+bestaudio/best[height=480]/best[ext=mp4]/best',
+    '360':  'bestvideo[height=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=360]+bestaudio/best[height=360]/best[ext=mp4]/best',
+}
+
+FORMATS = [
+    {
+        'label': '1920x1080 - mp4',
+        'spec': 'bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=1080]+bestaudio/best[height=1080]/best[ext=mp4]/best',
+    },
+    {
+        'label': '854x480 - mp4',
+        'spec': 'bestvideo[height=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=480]+bestaudio/best[height=480]/best[ext=mp4]/best',
+    },
+    {
+        'label': '640x360 - mp4',
+        'spec': 'bestvideo[height=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=360]+bestaudio/best[height=360]/best[ext=mp4]/best',
+    },
+]
+
 # Base yt-dlp options applied to every download
 YDL_BASE: dict = {
     'quiet':            True,
@@ -129,14 +150,16 @@ def update_ytdlp():
 def _run_download(job_id: str, opts: dict):
     try:
         mode         = opts.get('mode', 'audio')
-        quality      = opts.get('quality', 'medium')
+        quality      = str(opts.get('quality', '480'))
+        video_format = opts.get('video_format', 'mp4')
         audio_format = opts.get('audio_format', 'mp3')
         url          = opts['url']
 
-        print(f'[Job {job_id}] Starting: {url} (mode={mode}, quality={quality}, fmt={audio_format})')
+        format_label = video_format if mode == 'video' else audio_format
+        print(f'[Job {job_id}] Starting: {url} (mode={mode}, quality={quality}, fmt={format_label})')
 
-        if mode != 'audio':
-            _patch(job_id, status='error', error='Video mode is no longer supported. Use mode="audio".')
+        if mode not in {'audio', 'video'}:
+            _patch(job_id, status='error', error='Invalid mode. Use "audio" or "video".')
             return
 
         def progress_hook(d):
@@ -160,7 +183,7 @@ def _run_download(job_id: str, opts: dict):
         if FFMPEG_BIN:
             ydl_opts['ffmpeg_location'] = FFMPEG_BIN
 
-        if FFMPEG_OK:
+        if mode == 'audio' and FFMPEG_OK:
             bitrate = AUDIO_BITRATES.get(quality, '192')
             ydl_opts.update({
                 'format': 'bestaudio/best',
@@ -170,7 +193,7 @@ def _run_download(job_id: str, opts: dict):
                     'preferredquality': bitrate,
                 }],
             })
-        else:
+        elif mode == 'audio':
             abr_map = {'low': 130, 'medium': 200, 'high': 9999}
             abr = abr_map.get(quality, 200)
             ydl_opts['format'] = f'bestaudio[abr<={abr}]/bestaudio/best'
@@ -179,10 +202,30 @@ def _run_download(job_id: str, opts: dict):
         _patch(job_id, status='progress', progress=0)
         print(f'[Job {job_id}] Extracting info and downloading...')
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get('title', url) if info else url
+        if mode == 'video':
+            format_spec = VIDEO_FORMAT_SPECS.get(quality, VIDEO_FORMAT_SPECS['480'])
+            command = ['yt-dlp', url, '-f', format_spec, '--merge-output-format', 'mp4']
+            _patch(job_id, progress=5)
+            try:
+                subprocess.run(
+                    command,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                    cwd=str(DOWNLOAD_DIR),
+                )
+                print('Download complete!')
+            except subprocess.CalledProcessError as e:
+                print(f'Error during download.\n{e.returncode}: {e.stderr}')
+                raise
+
+            title = url
             _patch(job_id, title=title)
+        else:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                title = info.get('title', url) if info else url
+                _patch(job_id, title=title)
 
         print(f'[Job {job_id}] Done: {title}')
         _patch(job_id, status='done', progress=100)
