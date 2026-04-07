@@ -32,18 +32,18 @@
 
     <!-- Mode Tabs -->
     <div class="mode-tabs">
-      <button class="tab-btn" data-mode="video" id="tab-video">
+      <button class="tab-btn active" data-mode="video" id="tab-video">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
         Video
       </button>
-      <button class="tab-btn active" data-mode="audio" id="tab-audio">
+      <button class="tab-btn" data-mode="audio" id="tab-audio">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/></svg>
         Audio Only
       </button>
     </div>
 
     <!-- Video Options -->
-    <div id="video-options" class="options-panel hidden">
+    <div id="video-options" class="options-panel">
       <div class="option-group">
         <label class="option-label">Resolution</label>
         <div class="quality-pills" id="video-quality">
@@ -51,11 +51,11 @@
             <span class="pill-label">360p</span>
             <span class="pill-sub">SD</span>
           </button>
-          <button class="pill active" data-value="480">
+          <button class="pill" data-value="480">
             <span class="pill-label">480p</span>
             <span class="pill-sub">SD+</span>
           </button>
-          <button class="pill" data-value="1080">
+          <button class="pill active" data-value="1080">
             <span class="pill-label">1080p</span>
             <span class="pill-sub">Full HD</span>
           </button>
@@ -72,7 +72,7 @@
     </div>
 
     <!-- Audio Options -->
-    <div id="audio-options" class="options-panel">
+    <div id="audio-options" class="options-panel hidden">
       <div class="option-group">
         <label class="option-label">Audio Quality</label>
         <div class="quality-pills" id="audio-quality">

@@ -150,7 +150,7 @@ def update_ytdlp():
 def _run_download(job_id: str, opts: dict):
     try:
         mode         = opts.get('mode', 'audio')
-        quality      = str(opts.get('quality', '480'))
+        quality      = str(opts.get('quality', '1080'))
         video_format = opts.get('video_format', 'mp4')
         audio_format = opts.get('audio_format', 'mp3')
         url          = opts['url']
@@ -203,7 +203,7 @@ def _run_download(job_id: str, opts: dict):
         print(f'[Job {job_id}] Extracting info and downloading...')
 
         if mode == 'video':
-            format_spec = VIDEO_FORMAT_SPECS.get(quality, VIDEO_FORMAT_SPECS['480'])
+            format_spec = VIDEO_FORMAT_SPECS.get(quality, VIDEO_FORMAT_SPECS['1080'])
             _patch(job_id, progress=5)
             try:
                 _merge_video_with_audio(url, format_spec)
