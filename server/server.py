@@ -32,7 +32,6 @@ app = Flask(__name__)
 CORS(app)
 
 # In-memory job store 
-# { job_id: { status, title, progress, error, file } }
 jobs: dict = {}
 jobs_lock = threading.Lock()
 
@@ -78,11 +77,9 @@ YDL_BASE: dict = {
 }
 
 # Routes
-
 @app.get('/ping')
 def ping():
     return jsonify({'ok': True, 'ffmpeg': FFMPEG_OK, 'ytdlp': yt_dlp.version.__version__})
-
 
 @app.post('/download')
 def start_download():
@@ -116,7 +113,6 @@ def start_download():
 
     return jsonify({'id': job_id, 'title': url})
 
-
 @app.get('/status/<job_id>')
 def get_status(job_id):
     with jobs_lock:
@@ -125,13 +121,11 @@ def get_status(job_id):
         return jsonify({'error': 'Not found'}), 404
     return jsonify(job)
 
-
 @app.get('/jobs')
 def list_jobs():
     with jobs_lock:
         data = list(jobs.values())
     return jsonify(data)
-
 
 @app.post('/update-ytdlp')
 def update_ytdlp():
@@ -144,9 +138,7 @@ def update_ytdlp():
     threading.Thread(target=_do_update, daemon=True).start()
     return jsonify({'ok': True, 'msg': 'Update started — restart the server when done'})
 
-
 # Download worker
-
 def _run_download(job_id: str, opts: dict):
     try:
         mode         = opts.get('mode', 'audio')
@@ -233,14 +225,11 @@ def _run_download(job_id: str, opts: dict):
         print(f'[Job {job_id}] Error: {e}')
         _patch(job_id, status='error', error=f'Unexpected error: {e}'[:160])
 
-
 # Helpers
-
 def _patch(job_id: str, **kwargs):
     with jobs_lock:
         if job_id in jobs:
             jobs[job_id].update(kwargs)
-
 
 def _merge_video_with_audio(url: str, format_spec: str):
     command = _resolve_ytdlp_command()
@@ -257,7 +246,6 @@ def _merge_video_with_audio(url: str, format_spec: str):
         cwd=str(DOWNLOAD_DIR),
     )
 
-
 def _resolve_ytdlp_command() -> list[str]:
     # Prefer CLI when available; otherwise invoke yt-dlp module from current Python.
     ytdlp_cli = shutil.which('yt-dlp')
@@ -265,14 +253,11 @@ def _resolve_ytdlp_command() -> list[str]:
         return [ytdlp_cli]
     return [sys.executable, '-m', 'yt_dlp']
 
-
 def _is_youtube_url(url: str) -> bool:
     pattern = r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/(watch\?v=|shorts/|embed/)?[\w\-]+'
     return bool(re.match(pattern, url))
 
-
 # Entry point
-
 if __name__ == '__main__':
     print(f'[YT Downloader] Server starting on http://localhost:{PORT}')
     print(f'[YT Downloader] Files saved to: {DOWNLOAD_DIR}')
