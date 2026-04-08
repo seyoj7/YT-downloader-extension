@@ -52,6 +52,3 @@ Contributing
 
 License
 - This project is licensed under the MIT License — see the `LICENSE` file in the project root for details. Replace the placeholder copyright holder in `LICENSE` with your name or organization.
-
-Questions
-- Tell me if you want this README expanded (usage examples, endpoints, screenshots, license).
