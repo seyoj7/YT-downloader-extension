@@ -13,6 +13,8 @@
   --text2: #aaaaaa;
   --accent: #ff0000;
   --accent-hover: #cc0000;
+  --web-accent: #3b82f6;
+  --web-accent-hover: #2563eb;
   --green: #2ecc71;
   --yellow: #f39c12;
   --red: #e74c3c;
@@ -30,13 +32,71 @@ body {
 }
 
 .app {
-  padding: 12px;
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-/* Header */
+/* ─── App Switcher ─── */
+.app-switcher {
+  display: flex;
+  align-items: center;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.switcher-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-radius: 16px;
+  color: var(--text2);
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: all 0.22s ease;
+  letter-spacing: 0.2px;
+}
+
+.switcher-btn:hover {
+  color: var(--text);
+}
+
+.switcher-btn.active {
+  color: #fff;
+  background: var(--accent);
+}
+
+/* When web mode active, highlight web button in blue */
+.web-mode .switcher-btn#switcher-web.active {
+  background: var(--web-accent);
+}
+
+.switcher-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* ─── Interfaces ─── */
+#yt-interface,
+#web-interface {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ─── Header ─── */
 .header {
   display: flex;
   align-items: center;
@@ -59,6 +119,18 @@ body {
   object-fit: cover;
 }
 
+.web-logo-icon {
+  width: 26px;
+  height: 26px;
+  background: var(--web-accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
 .status-dot {
   width: 9px;
   height: 9px;
@@ -76,7 +148,24 @@ body {
   50% { opacity: 0.4; }
 }
 
-/* URL Section */
+/* ─── Sites Strip ─── */
+.sites-strip {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.site-tag {
+  font-size: 10px;
+  padding: 2px 7px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+/* ─── URL Section ─── */
 .url-section {
   display: flex;
   flex-direction: column;
@@ -102,6 +191,10 @@ body {
 
 .url-field input:focus {
   border-color: var(--accent);
+}
+
+#web-url-input:focus {
+  border-color: var(--web-accent);
 }
 
 .url-field input::placeholder {
@@ -131,7 +224,13 @@ body {
   color: var(--red);
 }
 
-/* Mode Tabs */
+.url-hint {
+  font-size: 11px;
+  color: var(--text2);
+  font-style: italic;
+}
+
+/* ─── Mode Tabs ─── */
 .mode-tabs {
   display: flex;
   background: var(--bg2);
@@ -167,7 +266,7 @@ body {
   color: #fff;
 }
 
-/* Options Panels */
+/* ─── Options Panels ─── */
 .options-panel {
   background: var(--bg2);
   border-radius: var(--radius);
@@ -195,7 +294,7 @@ body {
   color: var(--text2);
 }
 
-/* Quality Pills */
+/* ─── Quality Pills ─── */
 .quality-pills {
   display: flex;
   gap: 6px;
@@ -227,6 +326,17 @@ body {
   color: #ff6666;
 }
 
+/* Web interface pills use blue accent */
+#web-quality .pill:hover {
+  border-color: var(--web-accent);
+}
+
+#web-quality .pill.active {
+  border-color: var(--web-accent);
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+}
+
 .pill-label {
   font-size: 12px;
   font-weight: 600;
@@ -237,7 +347,7 @@ body {
   opacity: 0.7;
 }
 
-/* Select */
+/* ─── Select ─── */
 .select-row {
   display: flex;
 }
@@ -258,7 +368,11 @@ body {
   border-color: var(--accent);
 }
 
-/* Download Button */
+#web-format:focus {
+  border-color: var(--web-accent);
+}
+
+/* ─── Download Buttons ─── */
 .download-btn {
   width: 100%;
   background: var(--accent);
@@ -295,7 +409,16 @@ body {
   cursor: not-allowed;
 }
 
-/* Queue */
+/* Web download button — blue */
+.web-dl-btn {
+  background: var(--web-accent);
+}
+
+.web-dl-btn:hover:not(:disabled) {
+  background: var(--web-accent-hover);
+}
+
+/* ─── Queue ─── */
 .queue-section {
   display: flex;
   flex-direction: column;
@@ -329,7 +452,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 160px;
+  max-height: 140px;
   overflow-y: auto;
 }
 
@@ -344,7 +467,7 @@ body {
   font-size: 12px;
 }
 
-/* Download Item */
+/* ─── Download Item ─── */
 .download-item {
   background: var(--bg2);
   border-radius: var(--radius-sm);
@@ -360,6 +483,9 @@ body {
 .download-item.progress { border-color: var(--accent); }
 .download-item.done { border-color: var(--green); }
 .download-item.error { border-color: var(--red); }
+
+/* Web items use blue for progress */
+.web-item.progress { border-color: var(--web-accent); }
 
 .di-row {
   display: flex;
@@ -405,12 +531,16 @@ body {
   transition: width 0.3s;
 }
 
+.web-item .di-progress-fill {
+  background: var(--web-accent);
+}
+
 .di-status {
   font-size: 10px;
   color: var(--text2);
 }
 
-/* ffmpeg warning */
+/* ─── Warnings ─── */
 .ffmpeg-warn {
   display: flex;
   align-items: center;
@@ -425,7 +555,7 @@ body {
 
 .ffmpeg-warn.hidden { display: none; }
 
-/* Server Note */
+/* ─── Server Note ─── */
 .server-note {
   display: flex;
   align-items: center;
@@ -447,7 +577,7 @@ body {
 
 .server-note a:hover { text-decoration: underline; }
 
-/* Modal */
+/* ─── Modal ─── */
 .modal {
   position: fixed;
   inset: 0;
@@ -501,7 +631,7 @@ body {
 
 .modal-body strong { color: var(--text); }
 
-/* Footer */
+/* ─── Footer ─── */
 .footer-bar {
   display: flex;
   align-items: center;
@@ -525,4 +655,5 @@ body {
 .footer-update:hover { color: var(--accent-hover); }
 .footer-update:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ─── Utility ─── */
 .hidden { display: none !important; }

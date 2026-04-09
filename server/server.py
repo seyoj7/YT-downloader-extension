@@ -138,6 +138,42 @@ def update_ytdlp():
     threading.Thread(target=_do_update, daemon=True).start()
     return jsonify({'ok': True, 'msg': 'Update started — restart the server when done'})
 
+@app.post('/download-web')
+def start_web_download():
+    """Download a video from any yt-dlp supported site (non-YouTube too)."""
+    data = request.get_json(silent=True) or {}
+    url  = data.get('url', '').strip()
+
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+
+    # Basic URL sanity check — must be http/https
+    if not re.match(r'https?://', url):
+        return jsonify({'error': 'URL must start with http:// or https://'}), 400
+
+    job_id = str(uuid.uuid4())[:8]
+
+    with jobs_lock:
+        jobs[job_id] = {
+            'id':       job_id,
+            'url':      url,
+            'status':   'pending',
+            'title':    url,
+            'progress': 0,
+            'error':    None,
+            'file':     None,
+        }
+
+    thread = threading.Thread(
+        target=_run_web_download,
+        args=(job_id, data),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({'id': job_id, 'title': url})
+
+
 # Download worker
 def _run_download(job_id: str, opts: dict):
     try:
@@ -224,6 +260,72 @@ def _run_download(job_id: str, opts: dict):
     except Exception as e:
         print(f'[Job {job_id}] Error: {e}')
         _patch(job_id, status='error', error=f'Unexpected error: {e}'[:160])
+
+# Web download worker — generic yt-dlp for any supported site
+def _run_web_download(job_id: str, opts: dict):
+    try:
+        url           = opts['url']
+        quality       = opts.get('quality', 'best[height<=720]')
+        output_format = opts.get('output_format', 'mp4')
+
+        print(f'[Job {job_id}] Web download: {url} (quality={quality}, fmt={output_format})')
+
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                raw = d.get('_percent_str', '0%').strip().replace('%', '')
+                raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)
+                try:
+                    pct = float(raw)
+                except ValueError:
+                    pct = 0
+                _patch(job_id, status='progress', progress=pct)
+            elif d['status'] == 'finished':
+                _patch(job_id, progress=99)
+
+        ydl_opts: dict = {
+            **YDL_BASE,
+            'outtmpl':        str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
+            'progress_hooks': [progress_hook],
+        }
+
+        if FFMPEG_BIN:
+            ydl_opts['ffmpeg_location'] = FFMPEG_BIN
+
+        if output_format == 'mp3' and FFMPEG_OK:
+            ydl_opts['format'] = 'bestaudio/best'
+            ydl_opts['postprocessors'] = [{
+                'key':              'FFmpegExtractAudio',
+                'preferredcodec':   'mp3',
+                'preferredquality': '192',
+            }]
+        elif output_format == 'original':
+            ydl_opts['format'] = quality
+        else:
+            # For mp4/webm try to get the right container; fall back gracefully
+            if FFMPEG_OK:
+                ydl_opts['format'] = quality
+                ydl_opts['merge_output_format'] = output_format
+            else:
+                ydl_opts['format'] = quality
+
+        _patch(job_id, status='progress', progress=0)
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            title = info.get('title', url) if info else url
+            _patch(job_id, title=title)
+
+        print(f'[Job {job_id}] Web download done: {title}')
+        _patch(job_id, status='done', progress=100)
+
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e)
+        print(f'[Job {job_id}] Web DownloadError: {msg}')
+        _patch(job_id, status='error', error=msg[:200])
+    except Exception as e:
+        print(f'[Job {job_id}] Web Error: {e}')
+        _patch(job_id, status='error', error=f'Unexpected error: {e}'[:200])
+
 
 # Helpers
 def _patch(job_id: str, **kwargs):

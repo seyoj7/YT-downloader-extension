@@ -8,152 +8,264 @@
 </head>
 <body>
   <div class="app">
-    <!-- Header -->
-    <header class="header">
-      <div class="header-logo">
-        <img id="logo-img" src="icons/icon.png" alt="YT Downloader logo" width="24" height="24" />
-        <span>YT Downloader</span>
-      </div>
-      <div id="server-status" class="status-dot offline" title="Server offline"></div>
-    </header>
 
-    <!-- URL Input -->
-    <div class="url-section">
-      <div class="url-field">
-        <input type="text" id="url-input" placeholder="YouTube URL or paste link..." />
-        <button id="paste-btn" class="icon-btn" title="Paste from clipboard">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/>
-          </svg>
+    <!-- App Switcher Bar -->
+    <div class="app-switcher">
+      <button id="switcher-yt" class="switcher-btn active" title="YouTube Downloader">
+        YouTube
+      </button>
+      <div class="switcher-divider"></div>
+      <button id="switcher-web" class="switcher-btn" title="Web Video Downloader">
+        Web Video
+      </button>
+    </div>
+
+    <!--YT DOWNLOADER INTERFACE-->
+    <div id="yt-interface">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-logo">
+          <img id="logo-img" src="icons/icon.png" alt="YT Downloader logo" width="24" height="24" />
+          <span>YT Downloader</span>
+        </div>
+        <div id="server-status" class="status-dot offline" title="Server offline"></div>
+      </header>
+
+      <!-- URL Input -->
+      <div class="url-section">
+        <div class="url-field">
+          <input type="text" id="url-input" placeholder="YouTube URL or paste link..." />
+          <button id="paste-btn" class="icon-btn" title="Paste from clipboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/>
+            </svg>
+          </button>
+        </div>
+        <div id="url-error" class="url-error hidden">Not a valid YouTube URL</div>
+      </div>
+
+      <!-- Mode Tabs -->
+      <div class="mode-tabs">
+        <button class="tab-btn active" data-mode="video" id="tab-video">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+          Video
+        </button>
+        <button class="tab-btn" data-mode="audio" id="tab-audio">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/></svg>
+          Audio Only
         </button>
       </div>
-      <div id="url-error" class="url-error hidden">Not a valid YouTube URL</div>
-    </div>
 
-    <!-- Mode Tabs -->
-    <div class="mode-tabs">
-      <button class="tab-btn active" data-mode="video" id="tab-video">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
-        Video
+      <!-- Video Options -->
+      <div id="video-options" class="options-panel">
+        <div class="option-group">
+          <label class="option-label">Resolution</label>
+          <div class="quality-pills" id="video-quality">
+            <button class="pill" data-value="360">
+              <span class="pill-label">360p</span>
+              <span class="pill-sub">SD</span>
+            </button>
+            <button class="pill" data-value="480">
+              <span class="pill-label">480p</span>
+              <span class="pill-sub">SD+</span>
+            </button>
+            <button class="pill active" data-value="1080">
+              <span class="pill-label">1080p</span>
+              <span class="pill-sub">Full HD</span>
+            </button>
+          </div>
+        </div>
+        <div class="option-group">
+          <label class="option-label">Container</label>
+          <div class="select-row">
+            <select id="video-format" class="select-input">
+              <option value="mp4">MP4</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio Options -->
+      <div id="audio-options" class="options-panel hidden">
+        <div class="option-group">
+          <label class="option-label">Audio Quality</label>
+          <div class="quality-pills" id="audio-quality">
+            <button class="pill" data-value="low">
+              <span class="pill-label">Low</span>
+              <span class="pill-sub">128kbps</span>
+            </button>
+            <button class="pill active" data-value="medium">
+              <span class="pill-label">Medium</span>
+              <span class="pill-sub">192kbps</span>
+            </button>
+            <button class="pill" data-value="high">
+              <span class="pill-label">High</span>
+              <span class="pill-sub">320kbps</span>
+            </button>
+          </div>
+        </div>
+        <div class="option-group">
+          <label class="option-label">Format</label>
+          <div class="select-row">
+            <select id="audio-format" class="select-input">
+              <option value="mp3">MP3</option>
+              <option value="flac">FLAC</option>
+              <option value="wav">WAV</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ffmpeg warning -->
+      <div id="ffmpeg-warn" class="ffmpeg-warn hidden">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        ffmpeg missing — video limited to ~720p, audio saves as webm/m4a
+      </div>
+
+      <!-- Download button -->
+      <button id="download-btn" class="download-btn" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        Download
       </button>
-      <button class="tab-btn" data-mode="audio" id="tab-audio">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/></svg>
-        Audio Only
+
+      <!-- Downloads Queue -->
+      <div class="queue-section">
+        <div class="queue-header">
+          <span>Downloads</span>
+          <button id="clear-done-btn" class="text-btn">Clear done</button>
+        </div>
+        <div id="download-list" class="download-list">
+          <div class="empty-state">No downloads yet</div>
+        </div>
+      </div>
+
+      <!-- Server note -->
+      <div class="server-note" id="server-note">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        Local server not running —
+        <a href="#" id="how-to-start">how to start</a>
+      </div>
+
+      <!-- Footer: yt-dlp version + update -->
+      <div class="footer-bar" id="footer-bar">
+        <span id="ytdlp-version" class="footer-ver">by seyoj</span>
+        <button id="update-btn" class="text-btn footer-update">Update yt-dlp</button>
+      </div>
+    </div><!-- /#yt-interface -->
+
+    <!--WEB VIDEO DOWNLOADER INTERFACE-->
+    <div id="web-interface" class="hidden">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-logo">
+          <div class="web-logo-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          </div>
+          <span>Web Downloader</span>
+        </div>
+        <div id="web-server-status" class="status-dot offline" title="Server offline"></div>
+      </header>
+
+      <!-- URL Input -->
+      <div class="url-section">
+        <div class="url-field">
+          <input type="text" id="web-url-input" placeholder="Paste any video URL..." />
+          <button id="web-paste-btn" class="icon-btn" title="Paste from clipboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/>
+            </svg>
+          </button>
+        </div>
+        <div id="web-url-hint" class="url-hint hidden"></div>
+      </div>
+
+      <!-- Web Options Panel -->
+      <div class="options-panel">
+        <div class="option-group">
+          <label class="option-label">Quality Preference</label>
+          <div class="quality-pills" id="web-quality">
+            <button class="pill" data-value="worst">
+              <span class="pill-label">Low</span>
+              <span class="pill-sub">fastest</span>
+            </button>
+            <button class="pill active" data-value="best[height<=720]">
+              <span class="pill-label">720p</span>
+              <span class="pill-sub">balanced</span>
+            </button>
+            <button class="pill" data-value="best">
+              <span class="pill-label">Best</span>
+              <span class="pill-sub">highest</span>
+            </button>
+          </div>
+        </div>
+        <div class="option-group">
+          <label class="option-label">Save As</label>
+          <div class="select-row">
+            <select id="web-format" class="select-input">
+              <option value="mp4">MP4 (video)</option>
+              <option value="mp3">MP3 (audio only)</option>
+              <option value="webm">WebM (video)</option>
+              <option value="original">Original format</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ffmpeg warning for web -->
+      <div id="web-ffmpeg-warn" class="ffmpeg-warn hidden">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        ffmpeg missing — saved in original format, conversion unavailable
+      </div>
+
+      <!-- Download button -->
+      <button id="web-download-btn" class="download-btn web-dl-btn" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        Download Video
       </button>
-    </div>
 
-    <!-- Video Options -->
-    <div id="video-options" class="options-panel">
-      <div class="option-group">
-        <label class="option-label">Resolution</label>
-        <div class="quality-pills" id="video-quality">
-          <button class="pill" data-value="360">
-            <span class="pill-label">360p</span>
-            <span class="pill-sub">SD</span>
-          </button>
-          <button class="pill" data-value="480">
-            <span class="pill-label">480p</span>
-            <span class="pill-sub">SD+</span>
-          </button>
-          <button class="pill active" data-value="1080">
-            <span class="pill-label">1080p</span>
-            <span class="pill-sub">Full HD</span>
-          </button>
+      <!-- Downloads Queue -->
+      <div class="queue-section">
+        <div class="queue-header">
+          <span>Downloads</span>
+          <button id="web-clear-done-btn" class="text-btn">Clear done</button>
+        </div>
+        <div id="web-download-list" class="download-list">
+          <div class="empty-state">No downloads yet</div>
         </div>
       </div>
-      <div class="option-group">
-        <label class="option-label">Container</label>
-        <div class="select-row">
-          <select id="video-format" class="select-input">
-            <option value="mp4">MP4</option>
-          </select>
-        </div>
-      </div>
-    </div>
 
-    <!-- Audio Options -->
-    <div id="audio-options" class="options-panel hidden">
-      <div class="option-group">
-        <label class="option-label">Audio Quality</label>
-        <div class="quality-pills" id="audio-quality">
-          <button class="pill" data-value="low">
-            <span class="pill-label">Low</span>
-            <span class="pill-sub">128kbps</span>
-          </button>
-          <button class="pill active" data-value="medium">
-            <span class="pill-label">Medium</span>
-            <span class="pill-sub">192kbps</span>
-          </button>
-          <button class="pill" data-value="high">
-            <span class="pill-label">High</span>
-            <span class="pill-sub">320kbps</span>
-          </button>
-        </div>
+      <!-- Server note -->
+      <div class="server-note" id="web-server-note">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        Local server not running —
+        <a href="#" id="web-how-to-start">how to start</a>
       </div>
-      <div class="option-group">
-        <label class="option-label">Format</label>
-        <div class="select-row">
-          <select id="audio-format" class="select-input">
-            <option value="mp3">MP3</option>
-            <option value="flac">FLAC</option>
-            <option value="wav">WAV</option>
-          </select>
+
+      <!-- Footer -->
+      <div class="footer-bar">
+        <span class="footer-ver">by seyoj</span>
+        <span id="web-ytdlp-version" class="footer-ver" style="color:var(--text2)"></span>
+      </div>
+    </div><!-- /#web-interface -->
+
+
+    <!-- Info Modal (shared) -->
+    <div id="info-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span>Start the Download Server</span>
+          <button id="close-modal" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p>Run the included server script:</p>
+          <code>python server/server.py</code>
+          <p>Or double-click <strong>start_server.bat</strong></p>
+          <p class="note">Requires Python 3.8+ and yt-dlp installed.</p>
         </div>
       </div>
     </div>
 
-    <!-- ffmpeg warning -->
-    <div id="ffmpeg-warn" class="ffmpeg-warn hidden">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
-      ffmpeg missing — video limited to ~720p, audio saves as webm/m4a
-    </div>
-
-    <!-- Download button -->
-    <button id="download-btn" class="download-btn" disabled>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-      Download
-    </button>
-
-    <!-- Downloads Queue -->
-    <div class="queue-section">
-      <div class="queue-header">
-        <span>Downloads</span>
-        <button id="clear-done-btn" class="text-btn">Clear done</button>
-      </div>
-      <div id="download-list" class="download-list">
-        <div class="empty-state">No downloads yet</div>
-      </div>
-    </div>
-
-    <!-- Server note -->
-    <div class="server-note" id="server-note">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-      Local server not running —
-      <a href="#" id="how-to-start">how to start</a>
-    </div>
-
-    <!-- Footer: yt-dlp version + update -->
-    <div class="footer-bar" id="footer-bar">
-      <span id="ytdlp-version" class="footer-ver">yt-dlp</span>
-      <button id="update-btn" class="text-btn footer-update">Update yt-dlp</button>
-    </div>
-  </div>
-
-  <!-- Info Modal -->
-  <div id="info-modal" class="modal hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <span>Start the Download Server</span>
-        <button id="close-modal" class="icon-btn">✕</button>
-      </div>
-      <div class="modal-body">
-        <p>Run the included server script:</p>
-        <code>python server/server.py</code>
-        <p>Or double-click <strong>start_server.bat</strong></p>
-        <p class="note">Requires Python 3.8+ and yt-dlp installed.</p>
-      </div>
-    </div>
-  </div>
+  </div><!-- /.app -->
 
   <script src="popup.js"></script>
 </body>
