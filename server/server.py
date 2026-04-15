@@ -47,6 +47,8 @@ VIDEO_FORMAT_SPECS = {
     '360':  'bestvideo[height=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=360]+bestaudio/best[height=360]/best[ext=mp4]/best',
 }
 
+SAFE_YT_BROWSERS = {'chrome', 'edge', 'firefox', 'opera', 'brave', 'vivaldi'}
+
 FORMATS = [
     {
         'label': '1920x1080 - mp4',
@@ -208,6 +210,8 @@ def _run_download(job_id: str, opts: dict):
             'progress_hooks': [progress_hook],
         }
 
+        _apply_safe_youtube_access(ydl_opts, opts)
+
         if FFMPEG_BIN:
             ydl_opts['ffmpeg_location'] = FFMPEG_BIN
 
@@ -234,7 +238,7 @@ def _run_download(job_id: str, opts: dict):
             format_spec = VIDEO_FORMAT_SPECS.get(quality, VIDEO_FORMAT_SPECS['1080'])
             _patch(job_id, progress=5)
             try:
-                _merge_video_with_audio(url, format_spec)
+                _merge_video_with_audio(url, format_spec, opts)
                 print('Download complete!')
             except subprocess.CalledProcessError as e:
                 print(f'Error during download.\n{e.returncode}: {e.stderr}')
@@ -288,6 +292,8 @@ def _run_web_download(job_id: str, opts: dict):
             'progress_hooks': [progress_hook],
         }
 
+        _apply_safe_youtube_access(ydl_opts, opts)
+
         if FFMPEG_BIN:
             ydl_opts['ffmpeg_location'] = FFMPEG_BIN
 
@@ -333,9 +339,55 @@ def _patch(job_id: str, **kwargs):
         if job_id in jobs:
             jobs[job_id].update(kwargs)
 
-def _merge_video_with_audio(url: str, format_spec: str):
+def _apply_safe_youtube_access(ydl_opts: dict, opts: dict):
+    """Optionally add safer YouTube extraction settings to reduce bot checks."""
+    if not opts.get('safe_access'):
+        return
+
+    # Default browser is Edge on Windows; caller can override with cookie_browser.
+    browser = str(opts.get('cookie_browser', 'edge')).strip().lower()
+    cookie_file = str(opts.get('cookie_file', '')).strip()
+
+    # Add browser cookies when available (preferred) or explicit cookie file.
+    if browser in SAFE_YT_BROWSERS:
+        ydl_opts['cookiesfrombrowser'] = (browser,)
+    elif cookie_file:
+        ydl_opts['cookiefile'] = cookie_file
+
+    # Enable a JS runtime when provided (e.g., node) to improve YouTube extraction.
+    js_runtime = str(opts.get('js_runtime', '')).strip()
+    if js_runtime:
+        ydl_opts['js_runtimes'] = {js_runtime: None}
+
+    # Slight pacing can help avoid aggressive rate limiting on repeated requests.
+    ydl_opts['sleep_interval_requests'] = 1
+    ydl_opts['max_sleep_interval_requests'] = 2
+
+def _build_safe_youtube_cli_args(opts: dict) -> list[str]:
+    """Build optional yt-dlp CLI args for safer YouTube extraction."""
+    if not opts.get('safe_access'):
+        return []
+
+    args: list[str] = []
+    browser = str(opts.get('cookie_browser', 'edge')).strip().lower()
+    cookie_file = str(opts.get('cookie_file', '')).strip()
+
+    if browser in SAFE_YT_BROWSERS:
+        args += ['--cookies-from-browser', browser]
+    elif cookie_file:
+        args += ['--cookies', cookie_file]
+
+    js_runtime = str(opts.get('js_runtime', '')).strip()
+    if js_runtime:
+        args += ['--js-runtimes', js_runtime]
+
+    args += ['--sleep-requests', '1', '--max-sleep-interval', '2']
+    return args
+
+def _merge_video_with_audio(url: str, format_spec: str, opts: dict):
     command = _resolve_ytdlp_command()
     command += [url, '-f', format_spec, '--merge-output-format', 'mp4']
+    command += _build_safe_youtube_cli_args(opts)
 
     if FFMPEG_BIN:
         command += ['--ffmpeg-location', FFMPEG_BIN]
