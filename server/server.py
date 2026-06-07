@@ -1,23 +1,35 @@
+import logging
+import os
 import re
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
+from typing import Dict, Any, List
+
 import yt_dlp
+from camoufox.sync_api import Camoufox
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-# Config
+# ══════════════════════════════════════════════════════════════════
+#  CONFIG & CONSTANTS
+# ══════════════════════════════════════════════════════════════════
+
 PORT         = 7979
 DOWNLOAD_DIR = Path.home() / 'Downloads' / 'YT-Downloader'
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Look for ffmpeg
+COOKIE_FILE  = Path(__file__).parent / 'cookies.txt'
+COOKIE_MAX_AGE = 24 * 60 * 60  # 24 hours in seconds
+
 _BIN_DIR   = Path(__file__).parent.parent / 'bin'
 _LOCAL_FF  = _BIN_DIR / 'ffmpeg.exe'
 
+# FFMpeg Checks
 if _LOCAL_FF.exists():
     FFMPEG_BIN = str(_BIN_DIR)  
     FFMPEG_OK  = True
@@ -27,13 +39,6 @@ elif shutil.which('ffmpeg'):
 else:
     FFMPEG_BIN = None
     FFMPEG_OK  = False
-
-app = Flask(__name__)
-CORS(app)
-
-# In-memory job store 
-jobs: dict = {}
-jobs_lock = threading.Lock()
 
 AUDIO_BITRATES = {
     'low':    '128',
@@ -46,6 +51,8 @@ VIDEO_FORMAT_SPECS = {
     '480':  'bestvideo[height=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=480]+bestaudio/best[height=480]/best[ext=mp4]/best',
     '360':  'bestvideo[height=360][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=360]+bestaudio/best[height=360]/best[ext=mp4]/best',
 }
+
+SAFE_YT_BROWSERS = {'chrome', 'edge', 'firefox', 'opera', 'brave', 'vivaldi'}
 
 FORMATS = [
     {
@@ -63,9 +70,9 @@ FORMATS = [
 ]
 
 # Base yt-dlp options applied to every download
-YDL_BASE: dict = {
-    'quiet':            True,
-    'no_warnings':      True,
+YDL_BASE: Dict[str, Any] = {
+    'quiet':            False,
+    'no_warnings':      False,
     'noplaylist':       True,
     'retries':          5,
     'fragment_retries': 5,
@@ -76,70 +83,236 @@ YDL_BASE: dict = {
     },
 }
 
-# Routes
-@app.get('/ping')
-def ping():
-    return jsonify({'ok': True, 'ffmpeg': FFMPEG_OK, 'ytdlp': yt_dlp.version.__version__})
+# ══════════════════════════════════════════════════════════════════
+#  STATE MANAGERS
+# ══════════════════════════════════════════════════════════════════
 
-@app.post('/download')
-def start_download():
-    data = request.get_json(silent=True) or {}
-    url  = data.get('url', '').strip()
+class JobManager:
+    def __init__(self):
+        self.jobs: Dict[str, Dict[str, Any]] = {}
+        self.lock = threading.Lock()
 
-    if not url:
-        return jsonify({'error': 'No URL provided'}), 400
-    if not _is_youtube_url(url):
-        return jsonify({'error': 'Not a YouTube URL'}), 400
+    def create(self, url: str) -> str:
+        job_id = str(uuid.uuid4())[:8]
+        with self.lock:
+            self.jobs[job_id] = {
+                'id':       job_id,
+                'url':      url,
+                'status':   'pending',
+                'title':    url,
+                'progress': 0,
+                'error':    None,
+                'file':     None,
+            }
+        return job_id
 
-    job_id = str(uuid.uuid4())[:8]
+    def update(self, job_id: str, **kwargs):
+        with self.lock:
+            if job_id in self.jobs:
+                self.jobs[job_id].update(kwargs)
 
-    with jobs_lock:
-        jobs[job_id] = {
-            'id':       job_id,
-            'url':      url,
-            'status':   'pending',
-            'title':    url,
-            'progress': 0,
-            'error':    None,
-            'file':     None,
-        }
+    def get(self, job_id: str) -> Dict[str, Any]:
+        with self.lock:
+            return self.jobs.get(job_id)
 
-    thread = threading.Thread(
-        target=_run_download,
-        args=(job_id, data),
-        daemon=True,
+    def get_all(self) -> List[Dict[str, Any]]:
+        with self.lock:
+            return list(self.jobs.values())
+
+    def progress_hook(self, d: Dict[str, Any], job_id: str):
+        if d['status'] == 'downloading':
+            raw = d.get('_percent_str', '0%').strip().replace('%', '')
+            raw = re.sub(r'\\x1b\\[[0-9;]*m', '', raw)
+            try:
+                pct = float(raw)
+            except ValueError:
+                pct = 0
+            self.update(job_id, status='progress', progress=pct)
+        elif d['status'] == 'finished':
+            self.update(job_id, progress=99)
+
+
+class CookieManager:
+    def __init__(self):
+        self.refresh_lock = threading.Lock()
+        self.is_refreshing = False
+
+    def are_fresh(self) -> bool:
+        """Check if cookies.txt exists and is younger than COOKIE_MAX_AGE."""
+        if not COOKIE_FILE.exists():
+            return False
+        age = time.time() - COOKIE_FILE.stat().st_mtime
+        return age < COOKIE_MAX_AGE
+
+    def save_netscape(self, cookies: List[Dict[str, Any]], filepath: Path):
+        """Convert Playwright-style cookies to Netscape HTTP Cookie File format."""
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write('# Netscape HTTP Cookie File\n')
+            f.write('# Generated by YT-Downloader via camoufox\n')
+            f.write(f'# Updated: {time.strftime("%Y-%m-%d %H:%M:%S")}\n\n')
+            for c in cookies:
+                domain     = c.get('domain', '')
+                sub_domain = 'TRUE' if domain.startswith('.') else 'FALSE'
+                path       = c.get('path', '/')
+                secure     = 'TRUE' if c.get('secure', False) else 'FALSE'
+                expires    = str(int(c.get('expires', 0)))
+                name       = c.get('name', '')
+                value      = c.get('value', '')
+                f.write(f'{domain}\t{sub_domain}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n')
+        print(f'[YT Downloader] Saved {len(cookies)} cookies to {filepath}')
+
+    def refresh_sync(self):
+        """Open camoufox browser, navigate to YouTube, extract cookies."""
+        with self.refresh_lock:
+            if self.is_refreshing:
+                print('[YT Downloader] Cookie refresh already in progress, skipping.')
+                return
+            self.is_refreshing = True
+
+        try:
+            print('[YT Downloader] Opening camoufox browser to fetch YouTube cookies...')
+
+            with Camoufox(headless=True) as browser:
+                page = browser.new_page()
+                page.goto('https://www.youtube.com', wait_until='domcontentloaded', timeout=30000)
+
+                # Wait for page to fully load and cookies to populate
+                try:
+                    page.wait_for_load_state('networkidle', timeout=15000)
+                except Exception:
+                    pass  # networkidle can timeout on YouTube's endless streams
+
+                # Give YouTube time to set all cookies
+                time.sleep(5)
+
+                # Extract cookies
+                cookies = page.context.cookies()
+                if cookies:
+                    self.save_netscape(cookies, COOKIE_FILE)
+                else:
+                    print('[YT Downloader] WARNING: No cookies captured.')
+
+            print('[YT Downloader] Browser closed. Cookies ready.')
+
+        except Exception as e:
+            print(f'[YT Downloader] ERROR refreshing cookies: {e}')
+        finally:
+            with self.refresh_lock:
+                self.is_refreshing = False
+
+    def refresh_background(self):
+        """Launch cookie refresh in a background thread."""
+        thread = threading.Thread(target=self.refresh_sync, daemon=True)
+        thread.start()
+        return thread
+
+    def apply_to_opts(self, ydl_opts: Dict[str, Any]):
+        """If cookies.txt exists, add it to yt-dlp options."""
+        if COOKIE_FILE.exists():
+            ydl_opts['cookiefile'] = str(COOKIE_FILE)
+
+    def build_cli_args(self) -> List[str]:
+        """Build CLI args to pass cookies.txt to yt-dlp subprocess."""
+        if COOKIE_FILE.exists():
+            return ['--cookies', str(COOKIE_FILE)]
+        return []
+
+# ══════════════════════════════════════════════════════════════════
+#  FLASK APP SETUP
+# ══════════════════════════════════════════════════════════════════
+
+app = Flask(__name__)
+CORS(app)
+
+# Disable HTTP request logs (e.g. GET /ping) from cluttering the terminal
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+
+job_manager = JobManager()
+cookie_manager = CookieManager()
+
+# ══════════════════════════════════════════════════════════════════
+#  DOWNLOAD WORKERS & HELPERS
+# ══════════════════════════════════════════════════════════════════
+
+def _resolve_ytdlp_command() -> List[str]:
+    # Prefer CLI when available; otherwise invoke yt-dlp module from current Python.
+    ytdlp_cli = shutil.which('yt-dlp')
+    if ytdlp_cli:
+        return [ytdlp_cli]
+    return [sys.executable, '-m', 'yt_dlp']
+
+def _is_youtube_url(url: str) -> bool:
+    pattern = r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/(watch\?v=|shorts/|embed/)?[\w\-]+'
+    return bool(re.match(pattern, url))
+
+def _build_safe_youtube_cli_args(opts: Dict[str, Any]) -> List[str]:
+    """Build optional yt-dlp CLI args for safer YouTube extraction."""
+    if not opts.get('safe_access'):
+        return []
+
+    args: List[str] = []
+    browser = str(opts.get('cookie_browser', 'edge')).strip().lower()
+    cookie_file = str(opts.get('cookie_file', '')).strip()
+
+    # Only use browser cookies if we DON'T already have camoufox cookies
+    if not COOKIE_FILE.exists():
+        if browser in SAFE_YT_BROWSERS:
+            args += ['--cookies-from-browser', browser]
+        elif cookie_file:
+            args += ['--cookies', cookie_file]
+
+    js_runtime = str(opts.get('js_runtime', '')).strip()
+    if js_runtime:
+        args += ['--js-runtimes', js_runtime]
+
+    args += ['--sleep-requests', '1', '--max-sleep-interval', '2']
+    return args
+
+def _apply_safe_youtube_access(ydl_opts: Dict[str, Any], opts: Dict[str, Any]):
+    """Optionally add safer YouTube extraction settings to reduce bot checks."""
+    if not opts.get('safe_access'):
+        return
+
+    # Default browser is Edge on Windows; caller can override with cookie_browser.
+    browser = str(opts.get('cookie_browser', 'edge')).strip().lower()
+    cookie_file = str(opts.get('cookie_file', '')).strip()
+
+    # Add browser cookies when available (preferred) or explicit cookie file.
+    # Only use browser cookies if we DON'T already have camoufox cookies
+    if not COOKIE_FILE.exists():
+        if browser in SAFE_YT_BROWSERS:
+            ydl_opts['cookiesfrombrowser'] = (browser,)
+        elif cookie_file:
+            ydl_opts['cookiefile'] = cookie_file
+
+    # Enable a JS runtime when provided (e.g., node) to improve YouTube extraction.
+    js_runtime = str(opts.get('js_runtime', '')).strip()
+    if js_runtime:
+        ydl_opts['js_runtimes'] = {js_runtime: None}
+
+    # Slight pacing can help avoid aggressive rate limiting on repeated requests.
+    ydl_opts['sleep_interval_requests'] = 1
+    ydl_opts['max_sleep_interval_requests'] = 2
+
+def _merge_video_with_audio(url: str, format_spec: str, opts: Dict[str, Any]):
+    command = _resolve_ytdlp_command()
+    command += [url, '-f', format_spec, '--merge-output-format', 'mp4']
+
+    # Add camoufox cookie file
+    command += cookie_manager.build_cli_args()
+
+    command += _build_safe_youtube_cli_args(opts)
+
+    if FFMPEG_BIN:
+        command += ['--ffmpeg-location', FFMPEG_BIN]
+
+    return subprocess.run(
+        command,
+        check=True,
+        cwd=str(DOWNLOAD_DIR),
     )
-    thread.start()
 
-    return jsonify({'id': job_id, 'title': url})
-
-@app.get('/status/<job_id>')
-def get_status(job_id):
-    with jobs_lock:
-        job = jobs.get(job_id)
-    if not job:
-        return jsonify({'error': 'Not found'}), 404
-    return jsonify(job)
-
-@app.get('/jobs')
-def list_jobs():
-    with jobs_lock:
-        data = list(jobs.values())
-    return jsonify(data)
-
-@app.post('/update-ytdlp')
-def update_ytdlp():
-    """Run pip install -U yt-dlp in the background and return immediately."""
-    def _do_update():
-        subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
-            capture_output=True,
-        )
-    threading.Thread(target=_do_update, daemon=True).start()
-    return jsonify({'ok': True, 'msg': 'Update started — restart the server when done'})
-
-# Download worker
-def _run_download(job_id: str, opts: dict):
+def _run_download(job_id: str, opts: Dict[str, Any]):
     try:
         mode         = opts.get('mode', 'audio')
         quality      = str(opts.get('quality', '1080'))
@@ -151,26 +324,20 @@ def _run_download(job_id: str, opts: dict):
         print(f'[Job {job_id}] Starting: {url} (mode={mode}, quality={quality}, fmt={format_label})')
 
         if mode not in {'audio', 'video'}:
-            _patch(job_id, status='error', error='Invalid mode. Use "audio" or "video".')
+            job_manager.update(job_id, status='error', error='Invalid mode. Use "audio" or "video".')
             return
 
-        def progress_hook(d):
-            if d['status'] == 'downloading':
-                raw = d.get('_percent_str', '0%').strip().replace('%', '')
-                raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)
-                try:
-                    pct = float(raw)
-                except ValueError:
-                    pct = 0
-                _patch(job_id, status='progress', progress=pct)
-            elif d['status'] == 'finished':
-                _patch(job_id, progress=99)
-
-        ydl_opts: dict = {
+        ydl_opts: Dict[str, Any] = {
             **YDL_BASE,
             'outtmpl':        str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
-            'progress_hooks': [progress_hook],
+            'progress_hooks': [lambda d: job_manager.progress_hook(d, job_id)],
         }
+
+        # Apply cookies from camoufox (primary method)
+        cookie_manager.apply_to_opts(ydl_opts)
+
+        # Also apply legacy browser-cookie access if requested
+        _apply_safe_youtube_access(ydl_opts, opts)
 
         if FFMPEG_BIN:
             ydl_opts['ffmpeg_location'] = FFMPEG_BIN
@@ -189,75 +356,194 @@ def _run_download(job_id: str, opts: dict):
             abr_map = {'low': 130, 'medium': 200, 'high': 9999}
             abr = abr_map.get(quality, 200)
             ydl_opts['format'] = f'bestaudio[abr<={abr}]/bestaudio/best'
-            _patch(job_id, error='ffmpeg missing — audio saved as native format (webm/m4a), not mp3')
+            job_manager.update(job_id, error='ffmpeg missing — audio saved as native format (webm/m4a), not mp3')
 
-        _patch(job_id, status='progress', progress=0)
+        job_manager.update(job_id, status='progress', progress=0)
         print(f'[Job {job_id}] Extracting info and downloading...')
 
         if mode == 'video':
             format_spec = VIDEO_FORMAT_SPECS.get(quality, VIDEO_FORMAT_SPECS['1080'])
-            _patch(job_id, progress=5)
+            job_manager.update(job_id, progress=5)
             try:
-                _merge_video_with_audio(url, format_spec)
+                _merge_video_with_audio(url, format_spec, opts)
                 print('Download complete!')
             except subprocess.CalledProcessError as e:
-                print(f'Error during download.\n{e.returncode}: {e.stderr}')
+                print(f'Error during download. Return code: {e.returncode}')
                 raise
 
             title = url
-            _patch(job_id, title=title)
+            job_manager.update(job_id, title=title)
         else:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 title = info.get('title', url) if info else url
-                _patch(job_id, title=title)
+                job_manager.update(job_id, title=title)
 
         print(f'[Job {job_id}] Done: {title}')
-        _patch(job_id, status='done', progress=100)
+        job_manager.update(job_id, status='done', progress=100)
 
-    except yt_dlp.utils.DownloadError as e:
-        msg = str(e)
-        print(f'[Job {job_id}] DownloadError: {msg}')
-        if '403' in msg:
-            msg = '403 Forbidden — try updating yt-dlp (button in extension Settings)'
-        _patch(job_id, status='error', error=msg[:160])
     except Exception as e:
-        print(f'[Job {job_id}] Error: {e}')
-        _patch(job_id, status='error', error=f'Unexpected error: {e}'[:160])
+        if isinstance(e, yt_dlp.utils.DownloadError):
+            msg = str(e)
+            print(f'[Job {job_id}] DownloadError: {msg}')
+            if '403' in msg:
+                msg = '403 Forbidden — try updating yt-dlp (button in extension Settings)'
+            elif '429' in msg or 'bot' in msg.lower():
+                msg = 'Bot detected — try refreshing cookies (Settings → Refresh Cookies)'
+            job_manager.update(job_id, status='error', error=msg[:160])
+        else:
+            print(f'[Job {job_id}] Error: {e}')
+            job_manager.update(job_id, status='error', error=f'Unexpected error: {e}'[:160])
 
-# Helpers
-def _patch(job_id: str, **kwargs):
-    with jobs_lock:
-        if job_id in jobs:
-            jobs[job_id].update(kwargs)
 
-def _merge_video_with_audio(url: str, format_spec: str):
-    command = _resolve_ytdlp_command()
-    command += [url, '-f', format_spec, '--merge-output-format', 'mp4']
+def _run_web_download(job_id: str, opts: Dict[str, Any]):
+    try:
+        url           = opts['url']
+        quality       = opts.get('quality', 'best[height<=720]')
+        output_format = opts.get('output_format', 'mp4')
 
-    if FFMPEG_BIN:
-        command += ['--ffmpeg-location', FFMPEG_BIN]
+        print(f'[Job {job_id}] Web download: {url} (quality={quality}, fmt={output_format})')
 
-    return subprocess.run(
-        command,
-        check=True,
-        text=True,
-        capture_output=True,
-        cwd=str(DOWNLOAD_DIR),
+        ydl_opts: Dict[str, Any] = {
+            **YDL_BASE,
+            'outtmpl':        str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
+            'progress_hooks': [lambda d: job_manager.progress_hook(d, job_id)],
+        }
+
+        # Apply cookies from camoufox
+        cookie_manager.apply_to_opts(ydl_opts)
+
+        _apply_safe_youtube_access(ydl_opts, opts)
+
+        if FFMPEG_BIN:
+            ydl_opts['ffmpeg_location'] = FFMPEG_BIN
+
+        if output_format == 'mp3' and FFMPEG_OK:
+            ydl_opts['format'] = 'bestaudio/best'
+            ydl_opts['postprocessors'] = [{
+                'key':              'FFmpegExtractAudio',
+                'preferredcodec':   'mp3',
+                'preferredquality': '192',
+            }]
+        elif output_format == 'original':
+            ydl_opts['format'] = quality
+        else:
+            # For mp4/webm try to get the right container; fall back gracefully
+            if FFMPEG_OK:
+                ydl_opts['format'] = quality
+                ydl_opts['merge_output_format'] = output_format
+            else:
+                ydl_opts['format'] = quality
+
+        job_manager.update(job_id, status='progress', progress=0)
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            title = info.get('title', url) if info else url
+            job_manager.update(job_id, title=title)
+
+        print(f'[Job {job_id}] Web download done: {title}')
+        job_manager.update(job_id, status='done', progress=100)
+
+    except Exception as e:
+        if isinstance(e, yt_dlp.utils.DownloadError):
+            msg = str(e)
+            print(f'[Job {job_id}] Web DownloadError: {msg}')
+            job_manager.update(job_id, status='error', error=msg[:200])
+        else:
+            print(f'[Job {job_id}] Web Error: {e}')
+            job_manager.update(job_id, status='error', error=f'Unexpected error: {e}'[:200])
+
+# ══════════════════════════════════════════════════════════════════
+#  ROUTES
+# ══════════════════════════════════════════════════════════════════
+
+@app.get('/ping')
+def ping():
+    return jsonify({
+        'ok': True,
+        'ffmpeg': FFMPEG_OK,
+        'ytdlp': yt_dlp.version.__version__,
+        'cookies_fresh': cookie_manager.are_fresh(),
+    })
+
+@app.post('/download')
+def start_download():
+    data = request.get_json(silent=True) or {}
+    url  = data.get('url', '').strip()
+
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+    if not _is_youtube_url(url):
+        return jsonify({'error': 'Not a YouTube URL'}), 400
+
+    job_id = job_manager.create(url)
+
+    thread = threading.Thread(
+        target=_run_download,
+        args=(job_id, data),
+        daemon=True,
     )
+    thread.start()
 
-def _resolve_ytdlp_command() -> list[str]:
-    # Prefer CLI when available; otherwise invoke yt-dlp module from current Python.
-    ytdlp_cli = shutil.which('yt-dlp')
-    if ytdlp_cli:
-        return [ytdlp_cli]
-    return [sys.executable, '-m', 'yt_dlp']
+    return jsonify({'id': job_id, 'title': url})
 
-def _is_youtube_url(url: str) -> bool:
-    pattern = r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/(watch\?v=|shorts/|embed/)?[\w\-]+'
-    return bool(re.match(pattern, url))
+@app.get('/status/<job_id>')
+def get_status(job_id):
+    job = job_manager.get(job_id)
+    if not job:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(job)
 
-# Entry point
+@app.get('/jobs')
+def list_jobs():
+    return jsonify(job_manager.get_all())
+
+@app.post('/update-ytdlp')
+def update_ytdlp():
+    """Run pip install -U yt-dlp in the background and return immediately."""
+    def _do_update():
+        subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
+            capture_output=True,
+        )
+    threading.Thread(target=_do_update, daemon=True).start()
+    return jsonify({'ok': True, 'msg': 'Update started — restart the server when done'})
+
+@app.post('/refresh-cookies')
+def refresh_cookies():
+    """Open camoufox browser to refresh YouTube cookies."""
+    cookie_manager.refresh_background()
+    return jsonify({'ok': True, 'msg': 'Browser opening — cookies will be saved automatically'})
+
+@app.post('/download-web')
+def start_web_download():
+    """Download a video from any yt-dlp supported site (non-YouTube too)."""
+    data = request.get_json(silent=True) or {}
+    url  = data.get('url', '').strip()
+
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+
+    # Basic URL sanity check — must be http/https
+    if not re.match(r'https?://', url):
+        return jsonify({'error': 'URL must start with http:// or https://'}), 400
+
+    job_id = job_manager.create(url)
+
+    thread = threading.Thread(
+        target=_run_web_download,
+        args=(job_id, data),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify({'id': job_id, 'title': url})
+
+# ══════════════════════════════════════════════════════════════════
+#  ENTRY POINT
+# ══════════════════════════════════════════════════════════════════
+
 if __name__ == '__main__':
     print(f'[YT Downloader] Server starting on http://localhost:{PORT}')
     print(f'[YT Downloader] Files saved to: {DOWNLOAD_DIR}')
@@ -269,4 +555,12 @@ if __name__ == '__main__':
         print('  Audio will download as native format (webm/m4a), not mp3')
         print('  To fix: install ffmpeg and add it to PATH')
         print('  Quick install: winget install ffmpeg  OR  choco install ffmpeg')
+
+    # Fetch cookies on startup only if they are not fresh or missing
+    if cookie_manager.are_fresh():
+        print('[YT Downloader] Fresh cookies found, skipping browser launch.')
+    else:
+        print('[YT Downloader] No fresh cookies found. Opening browser to fetch YouTube cookies...')
+        cookie_manager.refresh_background()
+
     app.run(host='127.0.0.1', port=PORT, debug=False, threaded=True)
